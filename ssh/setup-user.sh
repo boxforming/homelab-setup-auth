@@ -107,28 +107,6 @@ configure_user_ssh_access () {
     chmod 600 "$AUTH_KEYS"
     chown -R $USER_NAME:$USER_NAME "$AUTH_KEYS"
 
-    PROFILE="$USER_HOME/.profile"
-    SNIPPET_MARKER="# ssh-pam: set SSH_AUTH_SOCK to latest ssh-pam socket"
-    if [ ! -f "$PROFILE" ]; then
-        # Ensure profile exists and is owned by the user
-        touch "$PROFILE"
-        chown "$USER_NAME:$USER_NAME" "$PROFILE"
-        chmod 644 "$PROFILE"
-    fi
-
-    if ! grep -Fq "$SNIPPET_MARKER" "$PROFILE" 2>/dev/null; then
-        cat >> "$PROFILE" <<EOF
-$SNIPPET_MARKER
-EOF
-        cat >> "$PROFILE" <<'EOF'
-#if [ -z "$SSH_AUTH_SOCK" ]; then
-LATEST_SOCK=$(ls -t /tmp/ssh-pam.$USER.*.sock 2>/dev/null | head -n 1)
-if [ -n "$LATEST_SOCK" ] && [ -S "$LATEST_SOCK" ]; then
-    export SSH_AUTH_SOCK="$LATEST_SOCK"
-fi
-#fi
-EOF
-    fi
 }
 
 if [[ $# -eq 3 ]]; then
