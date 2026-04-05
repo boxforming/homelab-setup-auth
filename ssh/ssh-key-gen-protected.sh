@@ -267,12 +267,24 @@ create_ssh_agent_launchagent "ca" "$domain_name" "$agent_sockets_dir"
 
 if [[ ! -f "$ca_pk_path" ]] ; then
     generate_key "$ca_pk_path" "${domain_name} certificate authority key" "$ca_agent_socket"
+else
+    SSH_AUTH_SOCK="$ca_agent_socket" /usr/bin/ssh-add --apple-use-keychain -q -c "$ca_pk_path"
+    ssh_add_code=$?
+    if [ $ssh_add_code -ne 0 ] ; then
+        echo "Cannot add ca key $ca_pk_path to $ca_agent_socket"
+    fi
 fi
 
 create_ssh_agent_launchagent "sudo" "$domain_name" "$agent_sockets_dir"
 
 if [[ ! -f "$sudo_pk_path" ]] ; then
     generate_key "$sudo_pk_path" "${domain_name} sudo key" "$sudo_agent_socket"
+else
+    SSH_AUTH_SOCK="$sudo_agent_socket" /usr/bin/ssh-add --apple-use-keychain -q -c "$sudo_pk_path"
+    ssh_add_code=$?
+    if [ $ssh_add_code -ne 0 ] ; then
+        echo "Cannot add sudo key $sudo_pk_path to $sudo_agent_socket"
+    fi
 fi
 
 if [[ ! -f "$pk_path" ]] ; then
