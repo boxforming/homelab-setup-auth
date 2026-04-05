@@ -259,6 +259,10 @@ ca_pk_path="$HOME/.ssh/ca=${domain_name}"
 sudo_agent_socket="$agent_sockets_dir/sudo.${domain_name}.sock"
 sudo_pk_path="$HOME/.ssh/sudo=${domain_name}"
 pk_path="$HOME/.ssh/${key_name}"
+cert_file="${pk_path}-cert.pub"
+need_resign=0
+
+ssh_add_code=
 
 # default ssh agent env vars
 # ssh-agent -s | head -n 2 | cut -d ';' -f 1
