@@ -1,5 +1,54 @@
 #!/bin/sh
 
+launch_ssh_agent_launchagent() {
+    
+    local plist_path="$1"
+    local label
+    local socket_path
+        
+    label="$(plutil -extract Label raw -o - "$plist_path")"
+    socket_path="$(plutil -extract ProgramArguments.2 raw -o - "$plist_path")"
+        
+    SSH_AUTH_SOCK="$socket_path" /usr/bin/ssh-add -L 2>/dev/null
+    local exit_code=$?
+    if [ "$exit_code" -ne 2 ]; then
+        return
+    fi  
+        
+    if launchctl bootstrap gui/"$UID" "$plist_path" 2>/dev/null; then
+        echo "Loaded LaunchAgent for $label."
+        echo "ssh-agent socket: ${socket_path}"
+        return 0
+    else
+        # fallback to legacy load (older macOS)
+        if launchctl load "$plist_path" 2>/dev/null; then
+        echo "Loaded LaunchAgent (legacy load) for $label."
+        return 0
+        fi
+    
+        echo "Could not automatically load the LaunchAgent. To load it manually run:"
+        echo "  launchctl bootstrap gui/$UID \"${plist_path}\""
+        echo "or (older macOS):"
+        echo "  launchctl load \"${plist_path}\""
+    fi
+    
+    local elapsed=0
+    while [ "$elapsed" -lt 10 ]; do
+        sleep 1
+        elapsed=$((elapsed + 1))
+        SSH_AUTH_SOCK="$socket_path" /usr/bin/ssh-add -L 2>/dev/null
+        exit_code=$?
+        if [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ]; then
+        break
+        fi
+    done
+        
+    if [ "$exit_code" -eq 2 ]; then
+        echo "Error: ssh-agent did not become available within 10 seconds" >&2
+    fi
+
+}
+
 create_ssh_agent_launchagent() {
   local mode="$1"
   local domain_name="$2"
@@ -37,7 +86,9 @@ MSG
     fi
   fi
 
-  cat > "$plist_path" <<EOF
+    tmp_plist_path="$(mktemp)"
+
+    cat > "$tmp_plist_path" <<EOF
   <?xml version="1.0" encoding="UTF-8"?>
   <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
   <plist version="1.0">
@@ -78,33 +129,23 @@ MSG
 </plist>
 EOF
 
-  echo "Created LaunchAgent plist: ${plist_path}"
-
-  # Try to unload old instance, then load the new one (works on modern macOS).
-  if command -v launchctl >/dev/null 2>&1; then
-    if launchctl bootout gui/"$UID" "$plist_path" 2>/dev/null; then
-      echo "Unloaded existing LaunchAgent (if present)."
+    if [ -f "$plist_path" ] && cmp -s "$tmp_plist_path" "$plist_path"; then
+        rm "$tmp_plist_path"
+        launch_ssh_agent_launchagent "$plist_path"
+        return
     fi
+  
 
-    if launchctl bootstrap gui/"$UID" "$plist_path" 2>/dev/null; then
-      echo "Loaded LaunchAgent for $label."
-      echo "ssh-agent socket: ${socket_path}"
-      return 0
-    else
-      # fallback to legacy load (older macOS)
-      if launchctl load "$plist_path" 2>/dev/null; then
-        echo "Loaded LaunchAgent (legacy load) for $label."
-        return 0
-      fi
-
-      echo "Could not automatically load the LaunchAgent. To load it manually run:"
-      echo "  launchctl bootstrap gui/$UID \"${plist_path}\""
-      echo "or (older macOS):"
-      echo "  launchctl load \"${plist_path}\""
+  # make sure old instance is unloaded
+    if command -v launchctl >/dev/null 2>&1; then
+        if launchctl bootout gui/"$UID" "$plist_path" 2>/dev/null; then
+          echo "Unloaded existing LaunchAgent (if present)."
+        fi
     fi
-  else
-    echo "launchctl not found; created plist at ${plist_path} but couldn't load it."
-  fi
+  
+    mv "$tmp_file" "$plist_path"
+    launch_ssh_agent_launchagent "$plist_path"
+
 }
 
 gen_password_with_symbols() {
@@ -222,17 +263,13 @@ pk_path="$HOME/.ssh/${key_name}"
 # default ssh agent env vars
 # ssh-agent -s | head -n 2 | cut -d ';' -f 1
 
-if ! SSH_AUTH_SOCK="$ca_agent_socket" /usr/bin/ssh-add -L 2>&1 >/dev/null ; then
-    create_ssh_agent_launchagent "ca" "$domain_name" "$agent_sockets_dir"
-fi
+create_ssh_agent_launchagent "ca" "$domain_name" "$agent_sockets_dir"
 
 if [[ ! -f "$ca_pk_path" ]] ; then
     generate_key "$ca_pk_path" "${domain_name} certificate authority key" "$ca_agent_socket"
 fi
 
-if ! SSH_AUTH_SOCK="$sudo_agent_socket" /usr/bin/ssh-add -L 2>&1 >/dev/null ; then
-    create_ssh_agent_launchagent "sudo" "$domain_name" "$agent_sockets_dir"
-fi
+create_ssh_agent_launchagent "sudo" "$domain_name" "$agent_sockets_dir"
 
 if [[ ! -f "$sudo_pk_path" ]] ; then
     generate_key "$sudo_pk_path" "${domain_name} sudo key" "$sudo_agent_socket"
