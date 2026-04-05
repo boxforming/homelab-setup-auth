@@ -2,7 +2,8 @@
 
 create_ssh_agent_launchagent() {
   local mode="$1"
-  local agent_sockets_dir="${2:-$HOME/.ssh/agents}"
+  local domain_name="$2"
+  local agent_sockets_dir="${3:-$HOME/.ssh/agents}"
   if [[ -z "$mode" ]]; then
     echo "Usage: create_ssh_agent_launchagent <mode>"
     echo "mode: sudo | ca"
@@ -14,10 +15,10 @@ create_ssh_agent_launchagent() {
     return 1
   fi
 
-  local label="com.boxforming.ssh-agent.${mode}"
+  local label="com.boxforming.ssh-agent.${mode}.${domain_name}"
   local plist_dir="$HOME/Library/LaunchAgents"
   local plist_path="$plist_dir/${label}.plist"
-  local socket_path="$agent_sockets_dir/${mode}.sock"
+  local socket_path="$agent_sockets_dir/${mode}.${domain_name}.sock"
   local log_path="$HOME/Library/Logs/${label}.log"
   local askpass_bin="/opt/homebrew/bin/touch2sudo"
 
@@ -202,14 +203,19 @@ sign_key() {
 }
 
 domain_name="$1"
-key_name="$2"
-identity="$3"
-expires="${4:-+30d}"
+identity="$2"
+expires="${3:-+30d}"
+key_name="${4:-$domain_name}"
+
+if [[ -z "$identity" ]] || [[ -z "$domain_name" ]] ; then
+    echo "Usage: $0 <domain_name> <identity> [expires] [key_name]"
+    exit 1
+fi
 
 agent_sockets_dir="$HOME/.ssh/agents"
-ca_agent_socket="$agent_sockets_dir/ca.sock"
+ca_agent_socket="$agent_sockets_dir/ca.${domain_name}.sock"
 ca_pk_path="$HOME/.ssh/ca=${domain_name}"
-sudo_agent_socket="$agent_sockets_dir/sudo.sock"
+sudo_agent_socket="$agent_sockets_dir/sudo.${domain_name}.sock"
 sudo_pk_path="$HOME/.ssh/sudo=${domain_name}"
 pk_path="$HOME/.ssh/${key_name}"
 
@@ -217,7 +223,7 @@ pk_path="$HOME/.ssh/${key_name}"
 # ssh-agent -s | head -n 2 | cut -d ';' -f 1
 
 if ! SSH_AUTH_SOCK="$ca_agent_socket" /usr/bin/ssh-add -L 2>&1 >/dev/null ; then
-    create_ssh_agent_launchagent "ca" "$agent_sockets_dir"
+    create_ssh_agent_launchagent "ca" "$domain_name" "$agent_sockets_dir"
 fi
 
 if [[ ! -f "$ca_pk_path" ]] ; then
@@ -225,7 +231,7 @@ if [[ ! -f "$ca_pk_path" ]] ; then
 fi
 
 if ! SSH_AUTH_SOCK="$sudo_agent_socket" /usr/bin/ssh-add -L 2>&1 >/dev/null ; then
-    create_ssh_agent_launchagent "sudo" "$agent_sockets_dir"
+    create_ssh_agent_launchagent "sudo" "$domain_name" "$agent_sockets_dir"
 fi
 
 if [[ ! -f "$sudo_pk_path" ]] ; then
