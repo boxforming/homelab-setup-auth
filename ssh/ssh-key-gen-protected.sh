@@ -291,4 +291,48 @@ if [[ ! -f "$pk_path" ]] ; then
     generate_key "$pk_path" "${identity}@${key_name}"
 fi
 
-sign_key "$pk_path" "$ca_pk_path" "$ca_agent_socket" "$identity" "$expires"
+if [[ ! -f "$cert_file" ]]; then
+    echo "Certificate not found: ${cert_file}; will sign key."
+    need_resign=1
+else
+    # Try to extract the "to" side of the Valid line output by ssh-keygen
+    valid_to="$(/usr/bin/ssh-keygen -L -f "$cert_file" 2>/dev/null | awk -F'to ' '/Valid:/{print $2; exit}')"
+
+    if [[ -z "$valid_to" ]]; then
+        echo "Could not determine certificate validity for ${cert_file}; will re-sign."
+        need_resign=1
+    elif [[ "$valid_to" == "forever" ]]; then
+        echo "Certificate ${cert_file} is valid forever; skipping re-sign."
+        need_resign=0
+    else
+        # Normalize timestamp: strip trailing Z and fractional seconds if present
+        vt="${valid_to%Z}"
+        vt="${vt%%.*}"
+
+        # Try a couple of common formats to convert to epoch (macOS date -j -f)
+        if ! valid_to_epoch="$(date -j -f "%Y-%m-%dT%H:%M:%S" "+%s" "$vt" 2>/dev/null)"; then
+            if ! valid_to_epoch="$(date -j -f "%Y-%m-%d %H:%M:%S" "+%s" "$vt" 2>/dev/null)"; then
+                # Couldn't parse; to be safe, re-sign
+                echo "Unrecognized certificate time format '${valid_to}' for ${cert_file}; will re-sign."
+                need_resign=1
+                valid_to_epoch=0
+            fi
+        fi
+
+        if [ "$need_resign" -eq 0 ]; then
+            now_epoch="$(date +%s)"
+            if [ "$now_epoch" -ge "${valid_to_epoch:-0}" ]; then
+                echo "Certificate ${cert_file} expired at ${valid_to}; will re-sign."
+                need_resign=1
+            else
+                echo "Certificate ${cert_file} still valid until ${valid_to}; skipping re-sign."
+                need_resign=0
+            fi
+        fi
+    fi
+fi
+
+# If we need to re-sign, perform it now and then override sign_key to a no-op
+if [ "$need_resign" -eq 1 ]; then
+    sign_key "$pk_path" "$ca_pk_path" "$ca_agent_socket" "$identity" "$expires"
+fi
