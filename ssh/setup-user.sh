@@ -58,7 +58,6 @@ configure_sshd () {
     local ETC_SSH_TRUSTED_KEYS="/etc/ssh/trusted_user_ca_keys"
     local ETC_SSHD_CONFIG_D="/etc/ssh/sshd_config.d"
     local CONFIG_FILE_CA="$ETC_SSHD_CONFIG_D/01_trusted_user_ca.conf"
-    local CONFIG_FILE_SUDO="$ETC_SSHD_CONFIG_D/02_sudo_pam_socket.conf"
 
     if [[ ! -f "$ETC_SSH_TRUSTED_KEYS" ]] || ! grep -Fxq "$PUBLIC_KEY" "$ETC_SSH_TRUSTED_KEYS"; then
         echo "$PUBLIC_KEY" >> "$ETC_SSH_TRUSTED_KEYS"
@@ -76,10 +75,6 @@ configure_sshd () {
             echo "TrustedUserCAKeys $ETC_SSH_TRUSTED_KEYS" >> "$CONFIG_FILE_CA"
             echo "Warning: $CONFIG_FILE_CA exists but directive TrustedUserCAKeys is missing, fixed"
         fi
-    fi
-
-    if [[ ! -f "$CONFIG_FILE_SUDO" ]]; then
-        echo "StreamLocalBindUnlink yes" > "$CONFIG_FILE_SUDO"
     fi
 
     # TODO: check for macos
